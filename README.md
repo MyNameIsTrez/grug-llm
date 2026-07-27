@@ -49,7 +49,14 @@ grug-llm report 42
 
 ## Related work
 
-OpenHands, SWE-agent, and Aider are the closest existing projects, but all three optimize for autonomy or benchmark score (solve the issue, fast), not for patient, evidence-heavy verification. Aider in particular assumes a human drives and the LLM assists, rather than investigating unattended for hours. grug-llm's niche: a modest model that isn't in a hurry, and isn't trusted until it has tried and failed to prove itself wrong.
+None of the individual pieces here are new. Worth being upfront about that.
+
+- **The loop itself**: this is close to the "Ralph Wiggum" technique, an unattended loop that re-invokes a coding agent against a todo file until a completion signal appears, with state kept in the filesystem and git history instead of conversation memory. People already run these overnight and for days unattended. It gets persistence right but has no concept of a hypothesis, a confidence score, or an adversarial review pass. It's diligence without epistemics.
+- **Execution-grounded hypothesis testing**: AgentForge (Planner/Coder/Tester/Debugger/Critic roles sharing a mandatory Docker sandbox, every patch required to survive sandboxed execution) and DebugHarness (an explicit hypothesis-testing loop driven by a debugger rather than a markdown file) are structurally close to Phase 1 and Phase 2 here. Agentless-style systems also describe verifying hypotheses inside a sandbox as their core loop.
+- **Hypothesis, experiment, verification loops in science**: NovelSeek, AI co-scientist, Agent Laboratory, and the open-source scholar-loop project all run something close to this same shape (literature review, grounded hypothesis, real experiment, scoring against ground truth, self-critique, write-up) aimed at research papers instead of code.
+- **OpenHands, SWE-agent, Aider**: the closest general-purpose coding agents, but optimized for autonomy or benchmark score (solve the issue, fast), not patient, evidence-heavy verification. Aider in particular assumes a human drives and the LLM assists, rather than investigating unattended for hours.
+
+So the mechanism, sandboxed execution as ground truth, a hypothesis ledger, an overnight loop with a hard stop condition, exists in pieces across all of these. What's less crowded is the specific framing: nearly all of the above assume a frontier or near-frontier model and use the loop to give it more autonomy or speed. grug-llm's premise is the opposite: the model is deliberately weak, and the loop's entire job is to convert GPU-hours you already own into the reliability an API call would otherwise cost money for. That's a difference in target user and motivation, not in mechanism, and it's worth being honest that this is closer to "known techniques, aimed at an underserved case" than to something nobody has tried.
 
 ## Plan of action
 
