@@ -24,17 +24,17 @@ Two framings make this easy to reason about. It resembles the scientific method 
 
 The output should read like a lab report, not a chat reply: a conclusion, a confidence level, a list of checks that passed, and an explicit list of what's still uncertain.
 
-It's meant to be run as a batch job, not a conversation:
+It's meant to be run as a batch job, not a conversation. `investigate` starts the run in the background and immediately hands back a job ID, the same way submitting a job to a cluster scheduler does:
 
 ```bash
-grug-llm investigate \
-  --model qwen14b \
-  --repo https://github.com/example/project \
-  --question "Why does this benchmark regress on ARM?" \
-  --max-runtime 8h
+$ grug-llm investigate \
+    --model qwen14b \
+    --question "Why does https://github.com/ROCm/rocm-libraries its device_adjacent_find benchmark crash?" \
+    --max-runtime 8h
+Started investigation 42
 
-grug-llm status 42
-grug-llm report 42
+$ grug-llm status 42
+$ grug-llm report 42
 ```
 
 ## Design principles
@@ -44,7 +44,8 @@ grug-llm report 42
 - **State lives in small files, not one journal**: `question.md`, `hypotheses.md`, `evidence.md`, `todo.md`. The model never has to remember iteration 40, and only retrieves what's relevant to its current decision.
 - **Observations are immutable, beliefs are not.** Raw tool output is never rewritten; interpretation lives separately and can change.
 - **Confidence is numeric, not vibes.** Every hypothesis carries a confidence score. The loop stops only once confidence clears a threshold and no required verifications remain.
-- **The tool set starts small**: search, fetch, git clone, grep, find, read, write, run. A general shell comes later, if at all. Small models plan better with a constrained action space.
+- **`search` and `fetch` are the only bespoke tools, and even those are thin.** `search` wraps a real search API, since there's no shell equivalent for "give me ranked web results"; scraping a search engine's result page with curl breaks the moment its markup changes or it blocks non-browser requests. `fetch` just extracts the readable text from a page before it hits the model's context, since raw HTML is mostly markup and context is the scarcest resource here. It's a convenience default, not a wall around curl.
+- **Everything else is a real, unrestricted shell.** Git clone, grep, find, cat, `python -c`, curl, whatever, all go through one `run(command)`. The model already sees stdout, stderr, and exit code after every command, and that feedback loop corrects a bad command faster than a whitelist prevents one. Blacklisting something like `python -c` would remove one of the cheapest ways to calculate an exact number that might otherwise be hallucinated instead.
 - **The system is model agnostic.** State, tools, verification, and scheduling are the product. The LLM underneath is swappable as better local models appear.
 
 ## Related work
@@ -64,10 +65,10 @@ So the mechanism, sandboxed execution as ground truth, a hypothesis ledger, an o
 
 Prove the loop works, nothing more.
 
-- Python CLI, takes a question and optional repo URL.
-- One disposable Ubuntu container with internet access and the repo cloned in.
+- Python CLI, takes a question. If the question contains a repo URL, a paper, a book, whatever, the model fetches or clones it itself as one of its first actions.
+- One disposable Ubuntu container with internet access.
 - One markdown journal the model reads and appends to each iteration.
-- Minimal tools: `search`, `fetch`, `git_clone`, `grep`, `find`, `read`, `write`, `run`.
+- Minimal tools: `search(query)`, `fetch(url)`, and `run(command)` against a real, unrestricted shell.
 - Loop: read journal, ask for the single highest priority question and one action, execute it, append the result, repeat.
 - Stop when the model reports no unverified hypotheses left, or a max iteration count is hit.
 
@@ -87,7 +88,7 @@ One reviewing mechanism, used at two points, replaces what could otherwise becom
 
 - A fresh model instance reviews the current state, looking only for factual errors, unsupported claims, or contradicting evidence, and producing objections, never rewrites.
 - Run it periodically during the investigation, to catch stalling early.
-- Run it once more at the end, in a fresh container with the repo re-cloned, given only the question and the final answer, told to prove it wrong. Success reopens the investigation.
+- Run it once more at the end, in a fresh container with whatever the investigation needed re-fetched from scratch (a repo re-cloned, a page re-fetched, whatever applies), given only the question and the final answer, told to prove it wrong. Success reopens the investigation.
 - Objections go back into the todo list; the loop continues until none remain.
 - Replace "DONE" with a structured stop signal: `confidence`, `remaining_uncertainties`, `required_verifications`. Stop only when confidence clears a threshold and required verifications is empty.
 - Final output: conclusion, confidence, a checklist of what was verified, and what's still uncertain.
