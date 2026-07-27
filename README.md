@@ -28,21 +28,13 @@ complex problem
 
 The final step becomes trivial (often a one line diff) because the hard part was never "deducing the answer." The hard part was constructing an environment where the answer becomes obvious. The difficulty in most software engineering problems is epistemic, not mechanical: knowing the right file, the right variable, the right causal mechanism. grug-llm spends compute on reducing that uncertainty rather than on longer reasoning traces.
 
-This connects to a few older ideas:
-
-- **The scientific method.** The agent doesn't try to reason its way to the truth, it designs the experiment that eliminates the most possibilities.
-- **Branch and bound / Monte Carlo search.** A hypothesis ledger is effectively a search tree, and every experiment prunes a branch.
-- **Simulated annealing.** The agent should occasionally abandon a hypothesis it has sunk time into, to avoid fixation.
-- **Theorem provers (Lean, Coq, Isabelle).** Instead of mathematical proof, grug-llm accumulates empirical proof: reproductions, tests, benchmarks, until every statement is justified.
+This connects to two older ideas worth naming. It resembles the scientific method more than classic reasoning: the agent doesn't try to think its way to the truth, it designs the experiment that eliminates the most possibilities. And it resembles a theorem prover more than a chatbot: instead of mathematical proof it accumulates empirical proof (reproductions, tests, benchmarks) until every claim is justified rather than merely asserted.
 
 The resulting artifact should look less like a chat response and more like a scientific report: a conclusion, a confidence level, a list of checks that passed, and an explicit list of remaining uncertainty.
 
 ## Who this is for
 
-- Privacy conscious developers who would rather run a model locally on proprietary code than send it to a hosted API.
-- Hobbyists with a consumer GPU who don't want to pay for frontier API usage.
-- Researchers who value a full, inspectable evidence trail over raw speed.
-- Anyone happy to leave a laptop running overnight on questions like "audit this codebase," "why does this benchmark regress on ARM," or "compare these three implementation strategies."
+Anyone who would rather trade time for reliability: developers who don't want to send proprietary code to a hosted API, hobbyists who don't want to pay for frontier API usage, researchers who care more about an inspectable evidence trail than about speed, or anyone happy to leave a laptop running overnight on a question like "audit this codebase" or "why does this benchmark regress on ARM."
 
 grug-llm is meant to be run like a batch job, not a chat:
 
@@ -65,7 +57,7 @@ grug-llm report 42
 - **Observations are immutable, beliefs are not.** Raw command output and search results are never rewritten. Interpretations of that evidence live in a separate, mutable beliefs file.
 - **Confidence is numeric, not vibes.** The model tracks a confidence score per hypothesis and only stops when confidence exceeds a threshold and no required verifications remain.
 - **Tools are a small, fixed set at first**: search, fetch, git clone, grep, find, read, write, run, and a few test runners. A general shell is added later, once the smaller action space has proven the approach works. Constraining the action space tends to produce better planning from a smaller model.
-- **The model is model agnostic.** The valuable part of the system is persistent state, tools, verification, and scheduling. The LLM itself is a pluggable reasoning engine that can be swapped as better local models appear.
+- **The system is model agnostic.** The valuable part is persistent state, tools, verification, and scheduling. The LLM itself is a pluggable reasoning engine that can be swapped as better local models appear.
 
 ## Related work
 
@@ -97,14 +89,15 @@ Replace the single journal with the multi file workspace and make state easier f
 - Replace "what should you do next" with an explicit uncertainty and confidence prompt: current confidence in the answer, the largest remaining uncertainty, and the next action.
 - Cache proven facts so the model doesn't re-derive things it has already verified.
 
-### Phase 2: Verification and adversarial review
+### Phase 2: Verification and review
 
-Add the machinery that turns a plausible answer into a well supported one.
+Add the machinery that turns a plausible answer into a well supported one. One reviewing mechanism, used at two points in the investigation, covers what would otherwise be three overlapping ideas (a skeptical reviewer, a separate "judge," and an adversarial re-check).
 
-- After a draft answer, run a separate "skeptical reviewer" pass on a fresh instance of the model whose only job is to find factual errors, unsupported claims, missing experiments, or contradicting code paths, without rewriting the answer itself.
-- Feed objections back into the todo list and continue the research loop until no objections remain.
+- The review prompt is always the same job on a fresh instance of the model: find factual errors, unsupported claims, missing experiments, or contradicting code paths, and only produce objections, never rewrite the answer itself.
+- Run it periodically during the investigation, against the current state, to catch stalling or repeated work early.
+- Run it once more at the end, against a fresh container with the repo re-cloned and only the question and final answer visible, with explicit instructions to prove the answer wrong. If it succeeds, reopen the investigation with the objection as a new hypothesis.
+- Feed all objections back into the todo list and continue the loop until none remain.
 - Replace the simple "DONE" signal with a structured stop condition, for example a JSON object with `confidence`, `remaining_uncertainties`, and `required_verifications`, and only allow termination when confidence is above a threshold and required verifications is empty.
-- Add an optional adversarial second pass: spin up a fresh container, clone everything again, and give a new instance only the question and the final answer with instructions to prove it wrong. If it succeeds, reopen the investigation.
 - Final output becomes a structured report: conclusion, confidence, a checklist of what was verified (reproduced, fixed, regression tests pass, benchmark unchanged, docs match behavior), and explicit remaining uncertainty.
 
 ### Phase 3: Efficiency and focus
@@ -114,16 +107,14 @@ Make the loop cheaper and less prone to wasting an 8 hour budget on nothing.
 - Build a retrieval layer over the workspace instead of stuffing the whole journal into every prompt. Ask the model to retrieve only the handful of most relevant pieces of evidence for its current decision.
 - Add periodic compression: every N iterations, collapse old observations into an executive summary with references, to keep working context small.
 - Add loop detection: compare consecutive actions, and if the controller sees repeated or near identical actions, interrupt and force the model to pick a fundamentally different avenue.
-- Add a lightweight cost model: before acting, have the model estimate information gain, execution cost, and probability of success, so it prefers "read the README" over "compile LLVM for 45 minutes" when both could answer the question.
-- Require every tool call to state its goal, expected observation, and how each possible result would change current beliefs.
+- Require every tool call to state its goal, expected observation, and how each possible result would change current beliefs. This is a cheaper and more honest substitute for asking the model to estimate its own information gain: a small model can state intent reliably, it cannot reliably self-score a probability of success.
+- Have the controller (not the model) prefer cheap, read-only actions over expensive ones when both are queued, using simple static rules rather than model-estimated costs.
 
-### Phase 4: Multiple investigators and specialized roles
+### Phase 4: Specialized roles
 
-Scale the approach horizontally instead of just running one long trace.
+Split the single agent prompt into a small pipeline that shares the same underlying model: planner, researcher, programmer, tester, editor. Small models tend to do much better with a narrow task than with one prompt doing everything, and unlike running several full investigations side by side, this doesn't multiply GPU time, since only one role is active at once.
 
-- Run several independent investigators on the same question from scratch, with no visibility into each other's notes, then have a judge model compare their conclusions. Agreement raises confidence, disagreement becomes a new hypothesis to investigate.
-- Split the single agent prompt into specialized roles that share the same underlying model: planner, researcher, programmer, tester, reviewer, editor. Small models tend to do much better with a narrow task than with one prompt doing everything.
-- Add a periodic "judge" pass, run every few iterations on a fresh instance, whose only job is to check whether the investigation is stuck, repeating work, or ignoring an important unexplored avenue.
+Running multiple independent investigators from scratch and comparing their conclusions is a legitimate way to raise confidence further, but it costs a multiple of total GPU time (three investigators means roughly three times the wall clock, on a single consumer GPU). Worth revisiting once the single-investigator loop above is solid and the added confidence is worth the added wait.
 
 ### Phase 5: Scheduling, checkpointing and the job model
 
@@ -134,11 +125,10 @@ Turn the tool from a script into something people actually leave running overnig
 - Graceful pausing: if the investigation genuinely cannot proceed (needs network access to an issue tracker, a newer compiler, or human input), it should say so explicitly rather than silently looping.
 - Full audit trail as a first class output: question, hypotheses, evidence collected, commands executed, failed approaches, remaining uncertainty, final answer, so a human can inspect a failed run and find the mistake quickly instead of starting over.
 
-### Phase 6: Learning across investigations and model agnosticism
+### Phase 6: Learning across investigations
 
 Make the system improve over time without needing a bigger model.
 
 - After each investigation, write out lessons learned: patterns, mistakes, useful commands, useful repositories, into a persistent `investigations/` directory keyed by topic. This is a distilled experience database, not a vector store.
 - Let future investigations query this experience database before starting from scratch.
-- Keep the model swappable behind a single interface, so the orchestration (persistent state, tools, verification, scheduling) is the actual product, and the local model underneath (Qwen, Gemma, or whatever comes next) is an interchangeable reasoning engine.
 - Evaluate the system by the quality of the investigation itself (was evidence gathered efficiently, were hypotheses actually tested), not only by whether the final patch happens to pass tests, since a passing patch reached through a wasteful or poorly justified trajectory is a lucky pass rather than a real success.
