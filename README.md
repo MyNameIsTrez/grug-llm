@@ -47,7 +47,7 @@ $ grug-llm report 42
 - Confidence is derived, not reported: the loop counts verified/contradicted/pending hypotheses directly from `hypotheses.jsonl` and stops once every hypothesis has a status.
 - The model never reads raw jsonl. Python renders the relevant slice into short markdown on demand, so structured state stays queryable for control flow while the model only ever sees compact prose.
 - Experiment selection is a first-class constraint from day one: candidate commands are cheaply ranked by expected information gain, and commands whose output already sits in `observations.jsonl` are refused before running.
-- `search` and `fetch` are the only bespoke tools (a search API, and HTML-to-text extraction). Everything else, git clone, grep, `python -c`, curl, goes through one real, unrestricted shell. Seeing stdout/stderr/exit code after every command corrects a bad command faster than a whitelist prevents one.
+- `search` and `fetch` are the only bespoke tools (a web search API, and HTML-to-text extraction for fetched pages). Everything else, git clone, grep, `python -c`, curl, goes through one real, unrestricted shell. Seeing stdout/stderr/exit code after every command corrects a bad command faster than a whitelist prevents one.
 
 ## Plan of action
 
