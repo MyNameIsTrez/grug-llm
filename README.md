@@ -20,11 +20,15 @@ complex problem
   -> simple final decision
 ```
 
-The final step is usually trivial once you get there, a one line diff in a codebase, a single well-placed paragraph in an essay, because the hard part was never deducing the answer. It was building an environment where the answer becomes obvious. In most investigations, whether debugging a benchmark regression or writing a well-supported essay, the difficulty is epistemic (which file, which source, which cause), not mechanical. grug-llm spends compute reducing that uncertainty instead of on longer reasoning traces.
+Most agent projects optimize for solving a task in as few LLM calls as possible. grug-llm optimizes for the opposite: maximizing evidence gathered per dollar and per watt. Intelligence is expensive, persistence is cheap, and the whole system is a bet that persistence, bought cheaply, can substitute for it.
 
-Two framings make this easy to reason about. It resembles the scientific method more than deduction: don't think your way to the truth, design the experiment that eliminates the most possibilities. And it resembles a theorem prover more than a chatbot: accumulate empirical proof (reproductions, tests, benchmarks) until every claim is justified, not merely asserted.
+The final step is usually trivial once you get there, a one line diff in a codebase, a single well-placed paragraph in an essay, because the hard part was never deducing the answer. It was building an environment where the answer becomes obvious. The difficulty in most investigations is epistemic (which file, which source, which cause), not mechanical, and grug-llm spends compute reducing that uncertainty instead of on longer reasoning traces.
 
-The output should read like a lab report, not a chat reply: a conclusion, a confidence level, a list of checks that passed, and an explicit list of what's still uncertain.
+The stronger framing here is a theorem prover, not a chatbot: every claim needs an explicit justification, assumptions stay visible, and confidence comes only from what's been verified, never from what's merely asserted. The scientific method is the same idea in a looser form: don't think your way to the truth, design the experiment that eliminates the most possibilities.
+
+The real risk isn't the model forgetting, it's the model choosing bad experiments. Given fifty possible next commands, a good engineer picks one; a 7B model might pick six mediocre ones, and doing that for hours quietly burns the overnight budget without teaching the loop anything. Improving experiment selection matters more here than improving reasoning, which is most of what Phase 3 below is about.
+
+The output should read like a lab report, not a chat reply: a conclusion, a checklist of what was verified, and an explicit list of what's still uncertain.
 
 It's meant to be run as a batch job, not a conversation. `investigate` starts the run in the background and immediately hands back a job ID, the same way submitting a job to a cluster scheduler does:
 
@@ -45,7 +49,7 @@ $ grug-llm report 42
 - **Every investigation gets a fresh, disposable container**, only `/workspace` mounted. Nothing persists except what's on disk.
 - **State lives in small files, not one journal**: `question.md`, `hypotheses.md`, `evidence.md`, `todo.md`. The model never has to remember iteration 40, and only retrieves what's relevant to its current decision.
 - **Observations are immutable, beliefs are not.** Raw tool output is never rewritten; interpretation lives separately and can change.
-- **Confidence is numeric, not vibes.** Every hypothesis carries a confidence score. The loop stops only once confidence clears a threshold and no required verifications remain.
+- **Confidence is derived, not reported.** A small model can't produce a calibrated `confidence = 0.83`, so the loop never asks for one. It tracks objective counts instead (verified claims, contradicted claims, pending claims, independent reproductions) and stops only once every hypothesis has a status and required verifications are satisfied. "Accepted because every hypothesis was tested and the fix survived a clean rebuild" is much harder to game than a percentage.
 - **`search` and `fetch` are the only bespoke tools, and even those are thin.** `search` wraps a real search API, since there's no shell equivalent for "give me ranked web results"; scraping a search engine's result page with curl breaks the moment its markup changes or it blocks non-browser requests. `fetch` just extracts the readable text from a page before it hits the model's context, since raw HTML is mostly markup and context is the scarcest resource here. It's a convenience default, not a wall around curl.
 - **Everything else is a real, unrestricted shell.** Git clone, grep, find, cat, `python -c`, curl, whatever, all go through one `run(command)`. The model already sees stdout, stderr, and exit code after every command, and that feedback loop corrects a bad command faster than a whitelist prevents one. Blacklisting something like `python -c` would remove one of the cheapest ways to calculate an exact number that might otherwise be hallucinated instead.
 - **The system is model agnostic.** State, tools, verification, and scheduling are the product. The LLM underneath is swappable as better local models appear.
@@ -83,7 +87,7 @@ Replace the single journal with separate files, and give the model a real belief
 - Split into `question.md`, `hypotheses.md`, `evidence.md`, `todo.md`, `summary.md`.
 - Every hypothesis gets a status: untested, supported, contradicted, or unknown.
 - Raw output goes into an append-only `observations/` directory; interpretation lives in a separate, editable file.
-- Every turn states current confidence, the largest remaining uncertainty, and the next action, rather than just "what's next."
+- Every turn states current verified/contradicted/pending claim counts, the largest remaining uncertainty, and the next action, rather than just "what's next." Counts, not scores.
 - Cache proven facts so the model never re-derives what it's already verified.
 
 ### Phase 2: Verification and review
@@ -94,23 +98,23 @@ One reviewing mechanism, used at two points, replaces what could otherwise becom
 - Run it periodically during the investigation, to catch stalling early.
 - Run it once more at the end, in a fresh container with whatever the investigation needed re-fetched from scratch (a repo re-cloned, a page re-fetched, whatever applies), given only the question and the final answer, told to prove it wrong. Success reopens the investigation.
 - Objections go back into the todo list; the loop continues until none remain.
-- Replace "DONE" with a structured stop signal: `confidence`, `remaining_uncertainties`, `required_verifications`. Stop only when confidence clears a threshold and required verifications is empty.
-- Final output: conclusion, confidence, a checklist of what was verified, and what's still uncertain.
+- Replace "DONE" with a stop signal built from counts: `verified_claims`, `contradicted_claims`, `pending_claims`, `required_verifications`. Stop only once every hypothesis has a status and required verifications is empty, never on a self-reported percentage.
+- Final output: a conclusion accepted because of a specific checklist (every hypothesis tested, benchmark reproduced twice, fix survives a clean rebuild, adversarial review found no unsupported claims), not a confidence percentage.
 
 ### Phase 3: Efficiency and focus
 
-Make the loop cheaper and harder to waste.
+Make the loop cheaper, and more importantly, better at choosing what to try next. This is where the experiment-selection risk from Core Idea actually gets addressed.
 
 - Retrieve only the relevant handful of workspace files per decision, instead of feeding the whole journal into every prompt.
 - Compress periodically: collapse old observations into a summary plus references.
 - Detect loops: if consecutive actions are near-identical, interrupt and force a different avenue.
-- Require every tool call to state its goal and how each possible result would change current beliefs. This is a cheaper, more honest substitute for asking the model to self-score a probability of success, which small models can't do reliably.
+- Require every tool call to state its goal and how each possible outcome would update current beliefs, for example: run the benchmark under ASAN, if the crash disappears that supports memory corruption, if it persists that points at synchronization instead. This turns a shell command into a stated piece of evidence rather than a random probe, and is a cheaper, more honest substitute for asking the model to self-score a probability of success, which small models can't do reliably.
 
 ### Phase 4: Specialized roles
 
-Split the single prompt into a small pipeline sharing the same model: planner, researcher, programmer, tester, editor. Small models do better with a narrow job than with one prompt doing everything, and since only one role runs at a time, this doesn't multiply GPU time.
+Lowest priority phase here, possibly skippable. Splitting the single prompt into a pipeline sharing the same model (planner, researcher, programmer, tester, editor) is a real option, and since only one role runs at a time it doesn't multiply GPU time. But role pipelines got popular partly because frontier API calls were expensive enough to make splitting a task worthwhile, and that reasoning doesn't obviously carry over here: a single prompt with a fixed structured output can outperform a pipeline just by avoiding the cost of translating context between roles. Worth attempting only after the state representation from Phase 1 through Phase 3 has been pushed as far as it goes, since that's more likely to be where the real gains are.
 
-Running several independent investigators from scratch and comparing conclusions is a legitimate way to raise confidence further, but it costs a real multiple of GPU time on a single card. Worth revisiting once the single-investigator loop is solid.
+Running several independent investigators from scratch and comparing conclusions raises confidence further, but costs a real multiple of GPU time on one card. Same verdict: revisit later, if ever.
 
 ### Phase 5: Scheduling and checkpointing
 
@@ -125,9 +129,9 @@ Turn the script into something people actually leave running overnight.
 
 Improve over time without a bigger model.
 
-- After each run, write out lessons learned (patterns, mistakes, useful commands and repos) into a persistent `investigations/` directory, keyed by topic. A distilled experience log, not a vector store.
+- After each run, distill procedural knowledge, not raw transcripts, into a persistent `investigations/` directory keyed by topic: not "rocprof was mentioned 40 times" but "ROCm investigations usually require checking the HIP version, rebuilding from a clean cache, inspecting rocprof output, and comparing gfx architecture." That's closer to experience than retrieval, and it's the actual differentiator in this phase.
 - Let future investigations query it before starting from scratch.
-- Judge the system by the quality of the investigation, not just whether the final patch passes tests. A passing patch reached through a wasteful, poorly justified path is a lucky pass, not a real success.
+- Judge the system by the quality of the investigation, not just whether the final patch passes tests: evidence gathered per hour, unsupported claims removed per iteration, shell commands per verified fact, experiments abandoned after contradiction. A passing patch reached through a wasteful, poorly justified path is a lucky pass, not a real success.
 
 ### Phase 7: Mobile and edge deployment
 
