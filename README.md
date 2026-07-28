@@ -39,18 +39,22 @@ $ grug-llm report 42
 
 - Python owns control flow, not the LLM: timeouts, iteration limits, and loop detection stay predictable.
 - Every investigation runs in a fresh, disposable sandbox with nothing but `/workspace`.
-- State lives in small files (`question.md`, `hypotheses.md`, `evidence.md`, `todo.md`), so the model never has to remember iteration 40.
+- State is split by function, not kept as one journal. Structured, machine-checked state lives in `.jsonl`; interpretation meant for the model to read lives in `.md`. The two never mix formats.
+  - `observations.jsonl`: one immutable record per tool call (command, exit code, stdout/stderr, timestamp, hypothesis tested). Append-only, never rewritten.
+  - `hypotheses.jsonl`: one record per hypothesis (id, statement, status, linked evidence ids, timestamps). Status is flipped by code based on evidence linkage, never self-reported by the model.
+  - `question.md`, `todo.md`, `evidence.md`: prose, rendered on demand from the jsonl files plus model interpretation. Low volume, no programmatic consumer, so markdown costs nothing here and saves tokens over JSON-escaped prose.
 - Observations are immutable, beliefs are not: raw tool output never gets rewritten, interpretation does.
-- Confidence is derived, not reported: the loop tracks verified/contradicted/pending claim counts and stops once every hypothesis has a status.
-- Experiment selection is a first-class constraint from day one: candidate commands are cheaply ranked by expected information gain, and commands whose output already sits in `evidence.md` are refused before running.
-- `search` and `fetch` are the only bespoke tools (a search API, and HTML-to-text extraction). Everything else — git clone, grep, `python -c`, curl — goes through one real, unrestricted shell. Seeing stdout/stderr/exit code after every command corrects a bad command faster than a whitelist prevents one.
+- Confidence is derived, not reported: the loop counts verified/contradicted/pending hypotheses directly from `hypotheses.jsonl` and stops once every hypothesis has a status.
+- The model never reads raw jsonl. Python renders the relevant slice into short markdown on demand, so structured state stays queryable for control flow while the model only ever sees compact prose.
+- Experiment selection is a first-class constraint from day one: candidate commands are cheaply ranked by expected information gain, and commands whose output already sits in `observations.jsonl` are refused before running.
+- `search` and `fetch` are the only bespoke tools (a search API, and HTML-to-text extraction). Everything else, git clone, grep, `python -c`, curl, goes through one real, unrestricted shell. Seeing stdout/stderr/exit code after every command corrects a bad command faster than a whitelist prevents one.
 
 ## Plan of action
 
-0. **MVP.** Python CLI, one disposable container, one markdown journal, `search`/`fetch`/`run`, a basic ranking-plus-dedup pass before execution, loop until no unverified hypotheses remain.
-1. **Structured state.** Split the journal into `hypotheses.md`, `evidence.md`, `todo.md`, an append-only `observations/`, and track claim counts instead of vibes.
+0. **MVP.** Python CLI, one disposable container, `observations.jsonl` plus a single markdown journal, `search`/`fetch`/`run`, a basic ranking-plus-dedup pass before execution, loop until no unverified hypotheses remain.
+1. **Structured state.** Split `hypotheses.jsonl` out from the journal, add `evidence.md` and `todo.md` rendered from jsonl, track claim counts instead of vibes.
 2. **Verification.** A fresh model instance periodically reviews for unsupported claims, then tries once more to prove the final answer wrong before it ships.
-3. **Efficiency.** Retrieve only relevant files per decision, compress old observations, sharpen the ranking heuristic, require every tool call to state its goal and expected belief update.
+3. **Efficiency.** Retrieve only relevant slices of jsonl per decision, compress old observations, sharpen the ranking heuristic, require every tool call to state its goal and expected belief update.
 4. **Scheduling.** Job-style CLI (`investigate`, `status`, `report`), periodic checkpoints, graceful pausing, a full audit trail.
 5. **Learning across runs.** Distill procedural knowledge per topic ("LuaJIT NYI investigations usually need X, Y, Z"), not raw transcripts; judge runs by evidence gathered per hour, not just whether the patch passed.
 6. **Mobile.** Termux gives an unrestricted shell without root; smaller models (3B-8B) need the loop even more than a 14B does. Open problem: thermal duty cycling (burst inference, sleep, gate on temperature/charge) to survive an 8 hour run.
