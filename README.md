@@ -20,14 +20,14 @@ Most agent projects optimize for solving a task in as few LLM calls as possible.
 
 The difficulty in most investigations is epistemic (which file, which source, which cause), not mechanical, so the final step is usually trivial once you get there: a one line diff, a well-placed paragraph. The stronger mental model is a theorem prover, not a chatbot: every claim needs an explicit justification, and confidence comes only from what's been verified, never from what's merely asserted.
 
-The real risk isn't the model forgetting, it's the model choosing bad experiments. Given fifty possible next commands, a good engineer picks one; a small model might pick six mediocre ones, and doing that for hours quietly burns the overnight budget. Improving experiment selection matters more than improving reasoning.
+The real risk isn't the model forgetting, it's the model choosing bad experiments. Given fifty possible next commands, a good engineer picks one; a small model might pick six mediocre ones, and doing that for hours quietly burns the overnight budget. Improving experiment selection matters more than improving reasoning, which is why even the MVP ranks candidate commands instead of just running whatever the model proposes first.
 
 Run as a batch job, not a conversation:
 
 ```bash
 $ grug-llm investigate \
     --model qwen14b \
-    --question "Why does https://github.com/ROCm/rocm-libraries its device_adjacent_find benchmark crash?" \
+    --prompt "https://github.com/openresty/luajit2 - optimize unpack() by getting it out of LuaJIT's NYI (not-yet-implemented) list" \
     --max-runtime 8h
 Started investigation 42
 
@@ -42,14 +42,15 @@ $ grug-llm report 42
 - State lives in small files, not one journal (`question.md`, `hypotheses.md`, `evidence.md`, `todo.md`), so the model never has to remember iteration 40.
 - Observations are immutable, beliefs are not: raw tool output never gets rewritten, interpretation does.
 - Confidence is derived, not reported: small models can't produce a calibrated `confidence = 0.83`, so the loop tracks verified/contradicted/pending claim counts instead and stops once every hypothesis has a status.
+- Experiment selection is a first-class constraint, not an afterthought: candidate next commands are cheaply ranked by expected information gain, and any command whose output is already sitting in `evidence.md` is refused before it ever runs. This is crude on day one, but it exists from the MVP so later stages improve a real mechanism instead of bolting one on late.
 - `search` and `fetch` are the only bespoke tools (a real search API, and HTML-to-text extraction). Everything else, git clone, grep, `python -c`, curl, whatever, goes through one real, unrestricted shell. The model already sees stdout, stderr, and exit code after every command, which corrects a bad command faster than a whitelist prevents one.
 
 ## Plan of action
 
-0. **MVP.** Python CLI, one disposable container, one markdown journal, `search`/`fetch`/`run` as tools, loop until no unverified hypotheses remain.
+0. **MVP.** Python CLI, one disposable container, one markdown journal, `search`/`fetch`/`run` as tools, a basic ranking-plus-dedup pass before any command executes, loop until no unverified hypotheses remain.
 1. **Structured state.** Split the journal into `hypotheses.md`, `evidence.md`, `todo.md`, an append-only `observations/` directory, and track claim counts instead of vibes.
 2. **Verification.** A fresh model instance periodically reviews for unsupported claims, and once more at the end tries to prove the final answer wrong before it ships.
-3. **Efficiency and experiment selection.** Retrieve only relevant files per decision, compress old observations, detect repeated actions, and require every tool call to state its goal and expected belief update.
+3. **Efficiency and experiment selection.** Retrieve only relevant files per decision, compress old observations, sharpen the ranking heuristic beyond simple dedup, and require every tool call to state its goal and expected belief update.
 4. **Scheduling.** Job-style CLI (`investigate`, `status`, `report`), periodic checkpoints, graceful pausing, a full audit trail.
-5. **Learning across runs.** Distill procedural knowledge per topic ("ROCm investigations usually need X, Y, Z"), not raw transcripts, and judge runs by evidence gathered per hour, not just whether the patch passed.
+5. **Learning across runs.** Distill procedural knowledge per topic ("LuaJIT NYI investigations usually need X, Y, Z"), not raw transcripts, and judge runs by evidence gathered per hour, not just whether the patch passed.
 6. **Mobile.** Termux already gives an unrestricted shell without root. Smaller models (3B-8B) need the loop even more than a 14B does. The open problem is thermal: a duty cycle (burst inference, sleep tens of seconds, gate on temperature and charge state) keeps the battery from cooking during an 8 hour run.
