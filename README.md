@@ -1,8 +1,10 @@
 # grug-llm
 
-grug-llm lets a small local LLM (Qwen 14B on a consumer GPU, say) solve hard problems by trading latency for reliability. Instead of asking the model to reason harder in one shot, it runs the model in a long, tool using loop inside a disposable Docker sandbox, until it has gathered enough evidence to actually prove its answer. An hour, or overnight, is fine.
+grug-llm lets a small local LLM solve hard problems by trading latency for reliability: a 14B model on a spare GPU, or eventually a 3B to 8B model on the phone already charging on your nightstand overnight. Instead of asking the model to reason harder in one shot, it runs the model in a long, tool using loop inside a disposable sandbox, until it has gathered enough evidence to actually prove its answer. An hour, or overnight, is fine.
 
-The philosophy is "stupid but diligent." A 14B model rarely has a flash of insight. It can be extremely persistent, never forget anything, and run thousands of cheap experiments before giving up. Persistence is undervalued.
+The philosophy is "stupid but diligent." A small model rarely has a flash of insight. It can be extremely persistent, never forget anything, and run thousands of cheap experiments before giving up. Persistence is undervalued, and the smaller the model, the more of it you need.
+
+The deeper motivation is access, not just cost. Running an agent that autonomously executes terminal commands for hours currently means either a capable GPU or a hosted API budget. grug-llm is for people who would rather not depend on either: who don't mind sending nothing to a third party server, don't mind their own electricity being far less efficient than a datacenter's, don't mind waiting until morning, and aren't expecting the model to design an architecture from scratch, just to grind patiently through one well-scoped question.
 
 ## Core idea
 
@@ -18,7 +20,7 @@ complex problem
   -> simple final decision
 ```
 
-The final step is usually trivial, often a one line diff, because the hard part was never deducing the answer. It was building an environment where the answer becomes obvious. In most software engineering problems the difficulty is epistemic (which file, which variable, which cause), not mechanical. grug-llm spends compute reducing that uncertainty instead of on longer reasoning traces.
+The final step is usually trivial once you get there, a one line diff in a codebase, a single well-placed paragraph in an essay, because the hard part was never deducing the answer. It was building an environment where the answer becomes obvious. In most investigations, whether debugging a benchmark regression or writing a well-supported essay, the difficulty is epistemic (which file, which source, which cause), not mechanical. grug-llm spends compute reducing that uncertainty instead of on longer reasoning traces.
 
 Two framings make this easy to reason about. It resembles the scientific method more than deduction: don't think your way to the truth, design the experiment that eliminates the most possibilities. And it resembles a theorem prover more than a chatbot: accumulate empirical proof (reproductions, tests, benchmarks) until every claim is justified, not merely asserted.
 
@@ -55,9 +57,11 @@ None of the individual pieces here are new. Worth being upfront about that.
 - **The loop itself**: this is close to the "Ralph Wiggum" technique, an unattended loop that re-invokes a coding agent against a todo file until a completion signal appears, with state kept in the filesystem and git history instead of conversation memory. People already run these overnight and for days unattended. It gets persistence right but has no concept of a hypothesis, a confidence score, or an adversarial review pass. It's diligence without epistemics.
 - **Execution-grounded hypothesis testing**: AgentForge (Planner/Coder/Tester/Debugger/Critic roles sharing a mandatory Docker sandbox, every patch required to survive sandboxed execution) and DebugHarness (an explicit hypothesis-testing loop driven by a debugger rather than a markdown file) are structurally close to Phase 1 and Phase 2 here. Agentless-style systems also describe verifying hypotheses inside a sandbox as their core loop.
 - **Hypothesis, experiment, verification loops in science**: NovelSeek, AI co-scientist, Agent Laboratory, and the open-source scholar-loop project all run something close to this same shape (literature review, grounded hypothesis, real experiment, scoring against ground truth, self-critique, write-up) aimed at research papers instead of code.
-- **OpenHands, SWE-agent, Aider**: the closest general-purpose coding agents, but optimized for autonomy or benchmark score (solve the issue, fast), not patient, evidence-heavy verification. Aider in particular assumes a human drives and the LLM assists, rather than investigating unattended for hours.
+- **General purpose agent frameworks (LangChain, CrewAI, OpenHands, SWE-agent, Aider)**: all assume a frontier or near-frontier model behind the API and optimize for solving a task in the fewest steps, with the model's own reasoning doing most of the work. Aider in particular assumes a human drives and the LLM assists, rather than investigating unattended for hours.
+- **Desktop local agents (Open Interpreter, Cline)**: these run locally too, but interactively, on a laptop or desktop GPU, targeting mid-sized models (roughly 14B to 32B) and expecting a person to guide the model when it gets stuck. grug-llm is meant to run headless, unattended, and eventually on hardware much smaller than a desktop GPU.
+- **Small models in industry (Phi, Gemma, Qwen, and similar)**: these are already tuned to run on phones, but for the opposite reason grug-llm wants them there. Industry uses them for low-latency, real-time tasks (autocomplete, summarization, quick queries) where speed matters and the task is shallow. grug-llm uses a small model for the opposite kind of task: slow, long-horizon, brute-force inquiry, where speed doesn't matter and depth does.
 
-So the mechanism, sandboxed execution as ground truth, a hypothesis ledger, an overnight loop with a hard stop condition, exists in pieces across all of these. What's less crowded is the specific framing: nearly all of the above assume a frontier or near-frontier model and use the loop to give it more autonomy or speed. grug-llm's premise is the opposite: the model is deliberately weak, and the loop's entire job is to convert GPU-hours you already own into the reliability an API call would otherwise cost money for. That's a difference in target user and motivation, not in mechanism, and it's worth being honest that this is closer to "known techniques, aimed at an underserved case" than to something nobody has tried.
+So the mechanism, sandboxed execution as ground truth, a hypothesis ledger, an overnight loop with a hard stop condition, exists in pieces across all of these. What's less crowded is the specific framing: nearly all of the above either assume a capable model or use a small model for something quick and shallow. grug-llm's premise is the opposite of both: the model is deliberately weak, the task is deliberately slow, and the loop's entire job is to turn hardware you already own, whether that's a spare GPU or a phone on the nightstand, into the reliability an API call would otherwise cost money for. That's a difference in target hardware and motivation, not in mechanism, and it's worth being honest that this is closer to "known techniques, aimed at an underserved case" than to something nobody has tried.
 
 ## Plan of action
 
@@ -124,3 +128,12 @@ Improve over time without a bigger model.
 - After each run, write out lessons learned (patterns, mistakes, useful commands and repos) into a persistent `investigations/` directory, keyed by topic. A distilled experience log, not a vector store.
 - Let future investigations query it before starting from scratch.
 - Judge the system by the quality of the investigation, not just whether the final patch passes tests. A passing patch reached through a wasteful, poorly justified path is a lucky pass, not a real success.
+
+### Phase 7: Mobile and edge deployment
+
+Move the same design onto a phone that's already plugged in overnight, since that's the largest source of idle compute most people own.
+
+- Termux on Android already gives a real, unrestricted shell without root, so the `run(command)` design carries over unchanged; a Python process there can drive a local model (Ollama, MLC-LLM, or similar) exactly like it drives one on a desktop.
+- Smaller models (3B to 8B) are dumber and need more iterations, more hypotheses, and more external verification than the desktop baseline. The loop isn't a nice-to-have here, it's the only thing that makes a model this size viable at all.
+- Sustained heavy inference heats up a phone that's charging, and a battery held above roughly 40°C for hours degrades faster. This needs a duty cycle: burst an inference step, then sleep the process for tens of seconds, gated on device temperature and only running while the battery is above some threshold and not fast-charging. A throttled pace of roughly one action per minute still gives an 8 hour night several hundred iterations, plenty to test dozens of hypotheses without ever pushing the thermal limit.
+- The existing workflow already matches the hardware: start `investigate`, lock the screen, wake up to a finished report.
