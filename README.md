@@ -2,12 +2,12 @@
 
 grug-llm is an overnight investigation engine for small local LLMs. Instead of expecting a weak model to reason its way to the answer, it repeatedly gathers evidence in a disposable sandbox until the answer is justified by experiments rather than intuition.
 
-The point is access, not speed. Running an agent that autonomously executes terminal commands for hours currently costs either a capable GPU or a hosted API budget. grug-llm is for people who want to use hardware they already own: their laptop's crappy GPU, or even their phone already charging on the nightstand. The tradeoff is waiting until morning for an answer to something well-scoped.
+The point is access, not speed. Running an agent that autonomously executes terminal commands for hours currently costs either a capable GPU or a hosted API budget. grug-llm is for people who want to use hardware they already own: their laptop's crappy GPU, or even their phone already charging on the nightstand. The tradeoff is waiting until morning for answers to well-scoped, complicated questions.
 
 ## How it works
 
 ```
-complex problem
+complicated problem
   -> generate uncertainty
   -> split into smaller questions
   -> test the cheapest/highest value hypothesis
