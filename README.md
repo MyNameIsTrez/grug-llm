@@ -2,7 +2,7 @@
 
 grug-llm is an overnight investigation engine for small local LLMs. Instead of expecting a weak model to reason its way to the answer, it repeatedly gathers evidence in a disposable sandbox until the answer is justified by experiments rather than intuition.
 
-The point is access, not speed. Running an agent that autonomously executes terminal commands for hours currently costs either a capable GPU or a hosted API budget. grug-llm is for people who'd rather spend hardware they already own than money: your laptop's crappy GPU today, a phone already charging on the nightstand as the actual target. The tradeoff is waiting until morning for an answer to something well-scoped.
+The point is access, not speed. Running an agent that autonomously executes terminal commands for hours currently costs either a capable GPU or a hosted API budget. grug-llm is for people who want to use hardware they already own: their laptop's crappy GPU, or even their phone already charging on the nightstand. The tradeoff is waiting until morning for an answer to something well-scoped.
 
 ## How it works
 
@@ -16,7 +16,7 @@ complex problem
   -> simple final decision
 ```
 
-Most agent projects optimize for solving a task in as few LLM calls as possible. grug-llm optimizes for the opposite: maximizing evidence gathered per dollar and per watt. Intelligence is expensive, persistence is cheap, and the whole system bets that cheap persistence can substitute for it.
+Most agent projects optimize for solving a task in as few LLM calls as possible. grug-llm optimizes for the opposite: maximizing evidence gathered per dollar you actually spend, using compute that would otherwise just sit there idle. Intelligence is expensive, persistence is cheap. The whole system bets that cheap persistence, on hardware that's already paid for, can substitute for intelligence.
 
 The difficulty in most investigations is epistemic (which file, which source, which cause), not mechanical, so the final step is usually trivial once you get there: a one line diff, a well-placed paragraph. The stronger mental model is a theorem prover, not a chatbot: every claim needs an explicit justification, and confidence comes only from what's been verified, never from what's merely asserted.
 
